@@ -6,3 +6,6 @@ database
 db.sqlite
 database.db
 testDB.db
+test.py
+training.ipynb
+main2.py

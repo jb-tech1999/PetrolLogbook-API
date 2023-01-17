@@ -1,19 +1,17 @@
-from typing import Optional
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
+import auth
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 from models import *
-from utils import *
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
-
-# CORS
-#add lan to orgins
 origins = [
     "http://localhost",
     "http://0.0.0.0:8080",
     "http://localhost:19006",
     "http://0.0.0.0:8000",
+    "http://0.0.0.0:19000"
+    "http://192.168.0.114:19000"
     
 
 ]
@@ -26,6 +24,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+auth_handler = auth.AuthHandler()
 engine = create_engine("sqlite:///testDB.db", echo=True)
 
 # session
@@ -35,29 +34,50 @@ def get_session():
     with Session(engine) as session:
         yield session
 
-# get requests
+users = []
 
 
+
+@app.post("/register", status_code=201)
+def register(authdetails: User, session: Session = Depends(get_session)):
+    statement = select(User).where(User.username == authdetails.username)
+    user = session.exec(statement).first()
+
+    if authdetails.username == user.username:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    hashed_password = auth_handler.get_password_hash(user.password)
+    user.password = hashed_password
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+
+    
+@app.post("/login")
+def login(authdetails: User, session: Session = Depends(get_session)):
+    user = None
+    statement = select(User).where(User.username == authdetails.username)
+    user = session.exec(statement).first()
+    print(user)
+
+    if (user is None) or (not auth_handler.verify_password(authdetails.password, user.password)):
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+
+    token = auth_handler.encode_token(user.id)
+
+    return {"token": token}
+
+
+#get all users if token is provided
 @app.get("/users")
-def get_users(session: Session = Depends(get_session)):
-    statement = select(User)
+def get_users(session: Session = Depends(get_session), id=Depends(auth_handler.auth_wrapper)):
+    statement = select(User).where(User.id == id)
     return session.exec(statement).all()
 
-# get user by id
 
 
-@app.get("/users/{user_id}")
-def get_user(user_id: int, session: Session = Depends(get_session)):
-    statement = select(User).where(User.id == user_id)
-    return session.exec(statement).first()
-
-
-# login
-
-
-#get cars from user id
-@app.get("/cars/{user_id}")
-def get_cars(user_id: int, session: Session = Depends(get_session)):
+@app.get("/cars")
+def get_cars(user_id=Depends(auth_handler.auth_wrapper), session: Session = Depends(get_session)):
     statement = select(Car).where(Car.user_id == user_id)
     cars = session.exec(statement).all()
     if cars:
@@ -65,10 +85,9 @@ def get_cars(user_id: int, session: Session = Depends(get_session)):
     else:
         return {"message": "No cars found"}
 
-
 #get all logs
-@app.get("/logs/{user_id}/{car_registration}")
-def get_logs(user_id: int, car_registration: str, session: Session = Depends(get_session)):
+@app.get("/logs/{car_registration}")
+def get_logs(car_registration: str, session: Session = Depends(get_session), user_id=Depends(auth_handler.auth_wrapper)):
     statement = select(Logs).where(Logs.user_id == user_id).where(Logs.carRegistration == car_registration)
     logs = session.exec(statement).all()
     if logs:
@@ -76,106 +95,55 @@ def get_logs(user_id: int, car_registration: str, session: Session = Depends(get
     else:
         return {"message": "No logs found"}
 
-
-# post requests
-# login
-@app.post("/login")
-def login(user: User, session: Session = Depends(get_session)):
-    statement = select(User).where(User.username == user.username)
-    result = session.exec(statement).first()
-    if result:
-        if verify_password(user.password, result.password):
-            return result
-        else:
-            return {"message": "Invalid username or password"}
-    else:
-        return {"message": "Invalid username or password"}
-
-# add user
-
-
-@app.post("/adduser")
-def add_user(user: User, session: Session = Depends(get_session)):
-    statement = select(User).where(User.username == user.username)
-    result = session.exec(statement).first()
-    if result:
-        return {"message": "User already exists"}
-    else:
-        # hash password
-        user.password = get_hashed_password(user.password)
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-        return user
-
-
-
-# add car
 @app.post("/addcar")
-def add_car(car: Car, session: Session = Depends(get_session)):
-    statement = select(Car).where(Car.registration == car.registration)
+def add_car(car: Car, session: Session = Depends(get_session), user_id=Depends(auth_handler.auth_wrapper)):
+    statement = select(Car).where(Car.user_id == user_id).where(Car.registration == car.registration)
     result = session.exec(statement).first()
     if result:
-        return {"message": "Car already exists"}
+        raise HTTPException(status_code=400, detail="Car already registered")
     else:
+        car.user_id = user_id
         session.add(car)
         session.commit()
         session.refresh(car)
         return car
 
-# add log
 @app.post("/addlog")
-def add_log(log: Logs, session: Session = Depends(get_session)):
-    statement = select(Logs).where(Logs.odometer == log.odometer)
+def add_log(log: Logs, session: Session = Depends(get_session), user_id=Depends(auth_handler.auth_wrapper)):
+    statement = select(Logs).where(Logs.odometer == log.odometer).where(Logs.carRegistration == log.carRegistration)
     result = session.exec(statement).first()
     if result:
-        return {"message": "Log already exists"}
+        raise HTTPException(status_code=400, detail="Log already registered")
     else:
+        log.user_id = user_id
         session.add(log)
         session.commit()
         session.refresh(log)
         return log
 
-# delete user
-
-
-@app.delete("/deleteuser/{user_id}")
-def delete_user(user_id: int, session: Session = Depends(get_session)):
-    statement = select(User).where(User.id == user_id)
-    result = session.exec(statement).first()
-    if result:
-        session.delete(result)
-        session.commit()
-        return {"message": "User deleted"}
-    else:
-        return {"message": "User not found"}
-
-# delete car
-
-
-@app.delete("/deletecar/{carRegistration}")
-def delete_car(carRegistration: str, session: Session = Depends(get_session)):
-    statement = select(Car).where(Car.registration == carRegistration)
+@app.delete("/deletecar/{car_registration}")
+def delete_car(car_registration: str, session: Session = Depends(get_session), user_id=Depends(auth_handler.auth_wrapper)):
+    statement = select(Car).where(Car.user_id == user_id).where(Car.registration == car_registration)
     result = session.exec(statement).first()
     if result:
         session.delete(result)
         session.commit()
         return {"message": "Car deleted"}
     else:
-        return {"message": "Car not found"}
+        raise HTTPException(status_code=400, detail="Car not found")
 
-# delete log
-@app.delete("/deletelog/{odometer}")
-def delete_log(odometer: int, session: Session = Depends(get_session)):
-    statement = select(Logs).where(Logs.odometer == odometer)
+@app.delete("/deletelog/{car_registration}/{odometer}")
+def delete_log(car_registration: str, odometer: int, session: Session = Depends(get_session), user_id=Depends(auth_handler.auth_wrapper)):
+    statement = select(Logs).where(Logs.user_id == user_id).where(Logs.carRegistration == car_registration).where(Logs.odometer == odometer)
     result = session.exec(statement).first()
     if result:
         session.delete(result)
         session.commit()
         return {"message": "Log deleted"}
     else:
-        return {"message": "Log not found"}
+        raise HTTPException(status_code=400, detail="Log not found")
 
 
-if __name__ == '__main__':
-    app.run()
+@app.get("/")
+def read_root():
+    return {"Hello": "World"}
