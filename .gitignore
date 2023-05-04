@@ -9,3 +9,5 @@ testDB.db
 test.py
 training.ipynb
 main2.py
+logs.csv
+t.json
