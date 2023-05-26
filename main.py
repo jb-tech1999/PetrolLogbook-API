@@ -13,7 +13,7 @@ origins = [
     "http://0.0.0.0:19000",
     "http://192.168.0.114:19000",
     "http://188.168.1.6:60988"
-    
+
 
 ]
 
@@ -35,8 +35,8 @@ def get_session():
     with Session(engine) as session:
         yield session
 
-users = []
 
+users = []
 
 
 @app.post("/register", status_code=201)
@@ -45,7 +45,8 @@ def register(authdetails: User, session: Session = Depends(get_session)):
     user = session.exec(statement).first()
 
     if authdetails.username == user.username:
-        raise HTTPException(status_code=400, detail="Username already registered")
+        raise HTTPException(
+            status_code=400, detail="Username already registered")
     hashed_password = auth_handler.get_password_hash(user.password)
     user.password = hashed_password
     session.add(user)
@@ -53,7 +54,7 @@ def register(authdetails: User, session: Session = Depends(get_session)):
     session.refresh(user)
     return user
 
-    
+
 @app.post("/login")
 def login(authdetails: User, session: Session = Depends(get_session)):
     user = None
@@ -62,19 +63,19 @@ def login(authdetails: User, session: Session = Depends(get_session)):
     print(user)
 
     if (user is None) or (not auth_handler.verify_password(authdetails.password, user.password)):
-        raise HTTPException(status_code=401, detail="Incorrect username or password")
+        raise HTTPException(
+            status_code=401, detail="Incorrect username or password")
 
     token = auth_handler.encode_token(user.id)
 
     return {"token": token}
 
 
-#get all users if token is provided
+# get all users if token is provided
 @app.get("/users")
 def get_users(session: Session = Depends(get_session), id=Depends(auth_handler.auth_wrapper)):
     statement = select(User).where(User.id == id)
     return session.exec(statement).all()
-
 
 
 @app.get("/cars")
@@ -86,19 +87,24 @@ def get_cars(user_id=Depends(auth_handler.auth_wrapper), session: Session = Depe
     else:
         return {"message": "No cars found"}
 
-#get all logs
+# get all logs
+
+
 @app.get("/logs/{car_registration}")
 def get_logs(car_registration: str, session: Session = Depends(get_session), user_id=Depends(auth_handler.auth_wrapper)):
-    statement = select(Logs).where(Logs.user_id == user_id).where(Logs.carRegistration == car_registration)
+    statement = select(Logs).where(Logs.user_id == user_id).where(
+        Logs.carRegistration == car_registration)
     logs = session.exec(statement).all()
     if logs:
         return logs
     else:
         return {"message": "No logs found"}
 
+
 @app.post("/addcar")
 def add_car(car: Car, session: Session = Depends(get_session), user_id=Depends(auth_handler.auth_wrapper)):
-    statement = select(Car).where(Car.user_id == user_id).where(Car.registration == car.registration)
+    statement = select(Car).where(Car.user_id == user_id).where(
+        Car.registration == car.registration)
     result = session.exec(statement).first()
     if result:
         raise HTTPException(status_code=400, detail="Car already registered")
@@ -109,9 +115,11 @@ def add_car(car: Car, session: Session = Depends(get_session), user_id=Depends(a
         session.refresh(car)
         return car
 
+
 @app.post("/addlog")
 def add_log(log: Logs, session: Session = Depends(get_session), user_id=Depends(auth_handler.auth_wrapper)):
-    statement = select(Logs).where(Logs.odometer == log.odometer).where(Logs.carRegistration == log.carRegistration)
+    statement = select(Logs).where(Logs.odometer == log.odometer).where(
+        Logs.carRegistration == log.carRegistration)
     result = session.exec(statement).first()
     if result:
         raise HTTPException(status_code=400, detail="Log already registered")
@@ -122,9 +130,11 @@ def add_log(log: Logs, session: Session = Depends(get_session), user_id=Depends(
         session.refresh(log)
         return log
 
+
 @app.delete("/deletecar/{car_registration}")
 def delete_car(car_registration: str, session: Session = Depends(get_session), user_id=Depends(auth_handler.auth_wrapper)):
-    statement = select(Car).where(Car.user_id == user_id).where(Car.registration == car_registration)
+    statement = select(Car).where(Car.user_id == user_id).where(
+        Car.registration == car_registration)
     result = session.exec(statement).first()
     if result:
         session.delete(result)
@@ -133,9 +143,11 @@ def delete_car(car_registration: str, session: Session = Depends(get_session), u
     else:
         raise HTTPException(status_code=400, detail="Car not found")
 
+
 @app.delete("/deletelog/{car_registration}/{odometer}")
 def delete_log(car_registration: str, odometer: int, session: Session = Depends(get_session), user_id=Depends(auth_handler.auth_wrapper)):
-    statement = select(Logs).where(Logs.user_id == user_id).where(Logs.carRegistration == car_registration).where(Logs.odometer == odometer)
+    statement = select(Logs).where(Logs.user_id == user_id).where(
+        Logs.carRegistration == car_registration).where(Logs.odometer == odometer)
     result = session.exec(statement).first()
     if result:
         session.delete(result)
